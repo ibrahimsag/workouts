@@ -190,8 +190,6 @@ step kdata vdata = do
     V{timeLastChecked, timerStart, timing, lastFrameSection, lastWorkout} = vdata
   mevent <- SDL.pollEvent
 
-  time <- SDL.time
-
   let
     e = case mevent of
       Nothing -> Cont
@@ -213,11 +211,13 @@ step kdata vdata = do
               -> Reset
           _ -> Cont
 
+  time <- SDL.time
+
   case e of
     Quit -> pure ()
     Skip -> step kdata vdata{timerStart=timerStart-1}
-    Reset -> step kdata vdata{timing = False, timeLastChecked=time}
-    Start -> step kdata vdata{timing = not timing}
+    Reset -> Mixer.fadeOut 300 Mixer.AllChannels >> step kdata (V time time False Nothing Nothing)
+    Start -> step kdata vdata{timing = True}
     Cont ->
      do
       let
@@ -245,17 +245,15 @@ step kdata vdata = do
 
       SDL.surfaceFillRect windowSurface Nothing (V4 0 0 0 255)
       when (timing && lastFrameSection /= (Just sectionTitle))
-       do
         case sectionChunk of
           Nothing -> pure ()
           Just chunk -> Mixer.fadeOut 300 Mixer.AllChannels >> Mixer.play chunk
-        putText sectionTitle
 
       case timing of
         True -> 
          do
-          (textWidth, textHeight) <- Font.size (helvetica24 fonts) "Space to stop"
-          textSurface <- Font.blended (helvetica24 fonts) (V4 255 255 255 255) "Space to stop"
+          (textWidth, textHeight) <- Font.size (helvetica24 fonts) "Escape to stop"
+          textSurface <- Font.blended (helvetica24 fonts) (V4 255 255 255 255) "Escape to stop"
 
           SDL.surfaceBlit textSurface Nothing windowSurface (Just $ P $ V2 ((1600 - fromIntegral textWidth) `div` 2) 670)
           SDL.freeSurface textSurface
