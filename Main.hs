@@ -4,6 +4,9 @@ module Main where
 
 import Protolude
 
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
+
 import Data.Text (pack, unpack)
 import qualified Data.Text as T
 
@@ -53,50 +56,68 @@ pngs =
 
 workouts :: [(Text, Text)]
 workouts =
- -- 5
- -- 1,1 .. 30
  [ ("jumpingjacks", "Jumping jacks")
- -- 10
- -- 30
  , ("wallsit", "Wall sit")
- -- 10
- -- 2,2 .. 30
  , ("pushupsn", "Push up")
- -- 10
- -- 2,2 .. 30
  , ("abcrunches", "Abdominal crunch")
- -- 10
- -- 2,2 .. 30
  , ("chair", "Step-up onto chair")
- -- 10
- -- 2,2 .. 30
  , ("squats", "Squat")
- -- 10
- -- 2,2 .. 30
  , ("tricep", "Triceps dip on chair")
- -- 10
- -- 30
  , ("plank", "Plank")
- -- 10
- -- 1,1 .. 30
- , ("run", "High knees running in place")
- -- 10
- -- 2,2 .. 30
- , ("lunges", "Lunge")
- -- 10
- -- 2,2 .. 30
+ , ("run", "Run in place")
+ , ("lunges", "Lunges")
  , ("pushupsrotation", "Push ups with rotation")
- -- 10
- -- 2, 28 .. 30
  , ("sideplank", "Side plank")
  ]
+
+sectionData :: [(Int, Text)]
+sectionData =
+  [ (5, "ready")
+  , (5, "tick-five")
+  , (5, "jumpingjacks")
+  , (30, "tick-thirty")
+  , (14, "rest")
+  , (4, "wallsit")
+  , (30, "tick-thirty")
+  , (14, "rest")
+  , (4, "pushupsn")
+  , (30, "tick-thirty")
+  , (14, "rest")
+  , (4, "abcrunches")
+  , (30, "tick-thirty")
+  , (14, "rest")
+  , (4, "chair")
+  , (30, "tick-thirty")
+  , (14, "rest")
+  , (4, "squats")
+  , (30, "tick-thirty")
+  , (14, "rest")
+  , (4, "tricep")
+  , (30, "tick-thirty")
+  , (14, "rest")
+  , (4, "plank")
+  , (30, "tick-thirty")
+  , (14, "rest")
+  , (5, "run")
+  , (30, "tick-thirty")
+  , (14, "rest")
+  , (4, "lunges")
+  , (30, "tick-thirty")
+  , (14, "rest")
+  , (4, "pushupsrotation")
+  , (30, "tick-thirty")
+  , (14, "rest")
+  , (4, "sideplank")
+  , (30, "tick-thirty")
+  , (7, "done")
+  ]
 
 readPngIntoSurface :: FilePath -> IO SDL.Surface
 readPngIntoSurface path = do
   readingImage <- P.readImage path
 
   let pngImage = case readingImage of
-          Left err -> panic ("encountered error during load of image: " <> pack err)
+          Left err -> panic ("ERROR when loding image: " <> pack err)
           Right dynamicImage -> P.convertRGBA8 dynamicImage
 
   let pngWidth = P.imageWidth pngImage
@@ -115,19 +136,17 @@ readPngIntoSurface path = do
 
 main :: IO ()
 main = do
-  workoutFigureSurface <- readPngIntoSurface "png-large/chair_1-94f472535b2697994151d989b1c1802421867f35.png"
-
   pngFiles <- traverse (\path -> (path,) <$> readPngIntoSurface (unpack ("png-large/" <> path))) pngs
-  let ws = map (\(id, logos) -> (id, logos, (map snd . filter (T.isPrefixOf id . fst)) pngFiles)) workouts
+  let ws = Map.fromList (map (\(id, workoutTitle) -> (id, (workoutTitle, (map snd . filter (T.isPrefixOf id . fst)) pngFiles))) workouts)
 
+  let
+    (_, sections) = foldl' (\(l, m) (d, t) -> (l+d, Map.insert (l+d) t m)) (0, Map.empty) sectionData
   SDL.initializeAll
   Mixer.openAudio Mixer.defaultAudio 1024
+
+  chunks <- ((Map.fromList <$>) . traverse (\t -> (t,) <$> Mixer.load ("audio/" <> toS t <> ".wav")) . ordNub . map snd) sectionData
+
   Font.initialize
-
-  wavTick :: Mixer.Chunk <- Mixer.load "tick.wav"
-  wavTock :: Mixer.Chunk <- Mixer.load "tock.wav"
-
-  let asciiLetters = pack ['0'..'z']
 
   futuraRegularFont24 <- Font.load "FuturaLT.ttf" 24
   helveticaWorldRegularFont24 <- Font.load "HelveticaWorld-Regular.ttf" 24
@@ -141,172 +160,176 @@ main = do
   window <- SDL.createWindow "My SDL Application" (SDL.defaultWindow { SDL.windowInitialSize = (V2 1600 900) } )
   windowSurface <- SDL.getWindowSurface window
 
-  overallSurface <- SDL.createRGBSurface (V2 1600 900) SDL.RGBA8888
-
-  let eachW (ind, (id, logos, (illustrationSurface:_))) = do
-                {- Cartesian grid
-                let x = 700 + 200 * (mod ind 4)
-                    y = 100 + 224 * (div ind 4)
-                 -}
-                {- Dodecacagon -}
-                let alph = (fromIntegral ind) * (pi / 12)
-                    x = 1050 + (floor (400 * cos alph)) - 100
-                    y = 400 + (floor (300 * sin alph))  - 100
-                 {- -}
-
-                SDL.surfaceFillRect overallSurface (Just $ SDL.Rectangle (P $ V2 x (y + 200)) ( V2 190 5)) (V4 255 255 255 255)
-
-                SDL.surfaceBlit illustrationSurface Nothing overallSurface (Just $ P $ V2 x y)
-
-                textSurface <- Font.blended (helvetica24 fonts) (V4 255 255 255 255) id
-                SDL.surfaceBlit textSurface Nothing overallSurface (Just $ P $ V2 x (y + 205))
-
-                SDL.freeSurface textSurface
-
-  traverse eachW (zip [0..] (take 6 ws))
-
-  SDL.freeSurface overallSurface
-
   initialTime <- SDL.time
 
-  sdlCycle workoutFigureSurface windowSurface window fonts ws wavTick wavTock initialTime initialTime False False
+  step (K windowSurface window fonts ws sections chunks) (V initialTime initialTime False Nothing Nothing)
 
-sdlCycle :: SDL.Surface -> SDL.Surface -> SDL.Window -> Fonts -> [(Text, Text, [SDL.Surface])] -> Mixer.Chunk -> Mixer.Chunk -> Double -> Double -> Bool -> Bool -> IO ()
-sdlCycle workoutFigureSurface windowSurface window fonts ws wavTick wavTock secondsLastChecked timerStart spacePressedLastChecked timerDream = do
-  events <- SDL.pollEvents
+data K = K
+  { windowSurface :: SDL.Surface
+  , window :: SDL.Window
+  , fonts :: Fonts
+  , ws :: Map Text (Text, [SDL.Surface])
+  , sections :: Map Int Text
+  , chunks :: Map Text Mixer.Chunk
+  }
 
-  seconds <- SDL.time
+data V = V
+  { timeLastChecked :: Double
+  , timerStart :: Double
+  , timing :: Bool
+  , lastFrameSection :: Maybe Text
+  , lastWorkout :: Maybe (Text, Text, [SDL.Surface])
+  }
 
-  let eventIsQPress event =
-        case SDL.eventPayload event of
-          SDL.KeyboardEvent keyboardEvent ->
-            SDL.keyboardEventKeyMotion keyboardEvent == SDL.Pressed &&
-            SDL.keysymKeycode (SDL.keyboardEventKeysym keyboardEvent) == SDL.KeycodeQ
-          _ -> False
-      eventIsSpacePress event =
-        case SDL.eventPayload event of
-          SDL.KeyboardEvent keyboardEvent ->
-            SDL.keyboardEventKeyMotion keyboardEvent == SDL.Pressed &&
-            SDL.keysymKeycode (SDL.keyboardEventKeysym keyboardEvent) == SDL.KeycodeSpace
-          _ -> False
-      eventIsEscapePress event =
-        case SDL.eventPayload event of
-          SDL.KeyboardEvent keyboardEvent ->
-            SDL.keyboardEventKeyMotion keyboardEvent == SDL.Pressed &&
-            SDL.keysymKeycode (SDL.keyboardEventKeysym keyboardEvent) == SDL.KeycodeEscape
-          _ -> False
+data E = Quit | Cont | Start | Reset | Skip
 
-      qPressed
-        = any eventIsQPress events
+step :: K -> V -> IO ()
+step kdata vdata = do
+  let
+    K{windowSurface, window, fonts, ws, sections, chunks} = kdata
+    V{timeLastChecked, timerStart, timing, lastFrameSection, lastWorkout} = vdata
+  mevent <- SDL.pollEvent
 
-      spacePressedThisCycle
-        = any eventIsSpacePress events
-
-      escapePressedThisCycle
-        = any eventIsEscapePress events
-
-      -- S
-      spaceSignal
-        = (not spacePressedLastChecked) && spacePressedThisCycle
-
-      timerDreamThisCycle
-       = if escapePressedThisCycle then False else (if spaceSignal then not timerDream else timerDream)
-
-  SDL.surfaceFillRect windowSurface Nothing (V4 0 0 0 255)
-
-  (startTextWidth, startTextHeight) <- Font.size (helvetica24 fonts) "Space to start"
-  startTextSurface <- Font.blended (helvetica24 fonts) (V4 255 255 255 255) "Space to start"
-
-  (stopTextWidth, stopTextHeight) <- Font.size (helvetica24 fonts) "Space to stop"
-  stopTextSurface <- Font.blended (helvetica24 fonts) (V4 255 255 255 255) "Space to stop"
-
-  case timerDreamThisCycle of
-    True -> void $ SDL.surfaceBlit stopTextSurface Nothing windowSurface (Just $ P $ V2 ((1600 - fromIntegral stopTextWidth) `div` 2) 670)
-    False -> void $ SDL.surfaceBlit startTextSurface Nothing windowSurface (Just $ P $ V2 ((1600 - fromIntegral startTextWidth) `div` 2) 670)
-
-  SDL.freeSurface startTextSurface
-  SDL.freeSurface stopTextSurface
+  time <- SDL.time
 
   let
-      intervalSinceLastChecked
-        = seconds - secondsLastChecked
+    e = case mevent of
+      Nothing -> Cont
+      Just event ->
+        case SDL.eventPayload event of
+          SDL.QuitEvent -> Quit
+          SDL.KeyboardEvent keyboardEvent
+            | SDL.keyboardEventKeyMotion keyboardEvent == SDL.Pressed &&
+              SDL.keysymKeycode (SDL.keyboardEventKeysym keyboardEvent) == SDL.KeycodeQ
+              -> Quit
+            | SDL.keyboardEventKeyMotion keyboardEvent == SDL.Pressed &&
+              SDL.keysymKeycode (SDL.keyboardEventKeysym keyboardEvent) == SDL.KeycodeSpace
+              -> Start
+            | SDL.keyboardEventKeyMotion keyboardEvent == SDL.Pressed &&
+              SDL.keysymKeycode (SDL.keyboardEventKeysym keyboardEvent) == SDL.KeycodeL
+              -> Skip
+            | SDL.keyboardEventKeyMotion keyboardEvent == SDL.Pressed &&
+              SDL.keysymKeycode (SDL.keyboardEventKeysym keyboardEvent) == SDL.KeycodeEscape
+              -> Reset
+          _ -> Cont
 
-      timerStartThisCycle
-        = if escapePressedThisCycle then seconds else (if timerDreamThisCycle then timerStart else timerStart + intervalSinceLastChecked)
+  case e of
+    Quit -> pure ()
+    Skip -> step kdata vdata{timerStart=timerStart-1}
+    Reset -> step kdata vdata{timing = False, timeLastChecked=time}
+    Start -> step kdata vdata{timing = not timing}
+    Cont ->
+     do
+      let
+        intervalSinceLastChecked
+          = time - timeLastChecked
+        timerStartThisCycle
+          = if timing then timerStart else timerStart + intervalSinceLastChecked
+        secondsInProgress = (time - timerStartThisCycle)
 
-      secondsInProgress = (seconds - timerStartThisCycle)
+        (sectionEnd, sectionTitle) = maybe (0, "end") identity (Map.lookupGT (floor secondsInProgress) sections)
 
-  SDL.surfaceFillRect windowSurface (Just $ SDL.Rectangle (P $ V2 0 500) (V2 500 400)) (V4 255 255 255 255)
+        (_, nextSectionTitle) = maybe (0, "end") identity (Map.lookupGT sectionEnd sections)
 
-  case secondsInProgress < 5 of
-    True -> do
-      timerSurfaceBlack <- Font.blended (futura72 fonts) (V4 0 0 0 255) (show $ round (5 - secondsInProgress))
+        sectionChunk = Map.lookup sectionTitle chunks
+        currentSection = if timing then Just sectionTitle else lastFrameSection
 
-      textSurfaceBlack <- Font.blended (helvetica24 fonts) (V4 0 0 0 255) "Get Ready"
+        upcoming = sectionTitle == "rest" || sectionTitle == "tick-five"
+        workoutTitle = if upcoming then nextSectionTitle else sectionTitle
 
-      SDL.surfaceBlit timerSurfaceBlack Nothing windowSurface (Just $ P $ V2 50 570)
-      SDL.surfaceBlit textSurfaceBlack Nothing windowSurface (Just $ P $ V2 50 700)
+        workout :: Maybe (Text, Text, [SDL.Surface])
+        workout =
+          if sectionTitle == "tick-thirty"
+          then lastWorkout
+          else (maybe Nothing (\(t, ss) -> Just (sectionTitle, t, ss)) (Map.lookup workoutTitle ws))
 
-      SDL.freeSurface timerSurfaceBlack
-      SDL.freeSurface textSurfaceBlack
+      SDL.surfaceFillRect windowSurface Nothing (V4 0 0 0 255)
+      when (timing && lastFrameSection /= (Just sectionTitle))
+       do
+        case sectionChunk of
+          Nothing -> pure ()
+          Just chunk -> Mixer.fadeOut 300 Mixer.AllChannels >> Mixer.play chunk
+        putText sectionTitle
 
-    False -> do
-      let secondsIntoWorkout :: Int = (round secondsInProgress - 5) `mod` 40
-          inRest = secondsIntoWorkout > 30
-          workoutInProgressIndex = (round secondsInProgress - 5) `div` 40 + (if inRest then 1 else 0)
-          workoutInProgress = headMay $ drop workoutInProgressIndex ws
-      case workoutInProgress of
-        Nothing -> do
-          doneSurfaceBlack <- Font.blended (helvetica72 fonts) (V4 0 0 0 255) "Finite!"
+      case timing of
+        True -> 
+         do
+          (textWidth, textHeight) <- Font.size (helvetica24 fonts) "Space to stop"
+          textSurface <- Font.blended (helvetica24 fonts) (V4 255 255 255 255) "Space to stop"
 
-          SDL.surfaceBlit doneSurfaceBlack Nothing windowSurface (Just $ P $ V2 50 700)
+          SDL.surfaceBlit textSurface Nothing windowSurface (Just $ P $ V2 ((1600 - fromIntegral textWidth) `div` 2) 670)
+          SDL.freeSurface textSurface
+        False ->
+         do
+          (textWidth, textHeight) <- Font.size (helvetica24 fonts) "Space to start"
+          textSurface <- Font.blended (helvetica24 fonts) (V4 255 255 255 255) "Space to start"
 
-          SDL.freeSurface doneSurfaceBlack
+          SDL.surfaceBlit textSurface Nothing windowSurface (Just $ P $ V2 ((1600 - fromIntegral textWidth) `div` 2) 670)
+          SDL.freeSurface textSurface
 
-        Just (id, logos, surfaces) -> do
-          let surfaceCount = length surfaces
-              surfaceIndex = ((secondsIntoWorkout) `mod` surfaceCount)
-              surfaceMay = if inRest then headMay surfaces else workoutSpecificAlternation
-              workoutSpecificAlternation = case id of
-                "sideplank" -> lastMay surfaces
-                _           -> atMay surfaces surfaceIndex
+      SDL.surfaceFillRect windowSurface (Just $ SDL.Rectangle (P $ V2 0 500) (V2 500 400)) (V4 255 255 255 255)
+      SDL.surfaceFillRect windowSurface (Just $ SDL.Rectangle (P $ V2 0 505) (V2 495 395)) (V4 0 0 0 255)
+
+      case workout of
+        Nothing -> pure ()
+        Just (workoutId, workoutTitle, surfaces) ->
+         do
+          let
+            surfaceCount = length surfaces
+            surfaceIndex = ((floor secondsInProgress) `mod` surfaceCount)
+            surfaceMay = if upcoming then headMay surfaces else workoutSpecificAlternation
+            workoutSpecificAlternation = case workoutId of
+              "sideplank" -> lastMay surfaces
+              _           -> atMay surfaces surfaceIndex
 
           case surfaceMay of
-            Nothing -> do
-              missTextSurface <- Font.blended (futura72 fonts) (V4 0 0 0 255) "missing illustration"
+            Nothing ->
+             do
+              missTextSurface <- Font.blended (futura72 fonts) (V4 255 255 255 255) "missing illustration"
               SDL.surfaceBlit missTextSurface Nothing windowSurface (Just $ P $ V2 50 570)
               SDL.freeSurface missTextSurface
             Just surface ->
-              void $ SDL.surfaceBlit surface Nothing windowSurface (Just $ P $ V2 0 0)
+             do
+              SDL.surfaceBlit surface Nothing windowSurface (Just $ P $ V2 0 0)
+              pure ()
 
-          case inRest of
-            False -> do
-              when (floor secondsLastChecked /= floor seconds) $ do
-                case floor seconds `mod` 2 == 0 of
-                  True -> Mixer.play wavTick
-                  False -> Mixer.play wavTock
+          if upcoming
+          then
+           do
+            titleSurfaceBlack <- Font.blended (helvetica24 fonts) (V4 255 255 255 155) ("..." <> workoutTitle)
+            SDL.surfaceBlit titleSurfaceBlack Nothing windowSurface (Just $ P $ V2 50 550)
+            SDL.freeSurface titleSurfaceBlack
+          else
+           do
+            titleSurfaceBlack <- Font.blended (helvetica24 fonts) (V4 255 255 255 255) workoutTitle
+            SDL.surfaceBlit titleSurfaceBlack Nothing windowSurface (Just $ P $ V2 50 550)
+            SDL.freeSurface titleSurfaceBlack
 
-              let countdown = 30 - secondsIntoWorkout
-              countdownTextSurface <- Font.blended (futura72 fonts) (V4 0 0 0 255) (show $ countdown)
-              SDL.surfaceBlit countdownTextSurface Nothing windowSurface (Just $ P $ V2 50 570)
-              SDL.freeSurface countdownTextSurface
+      when ("rest" == sectionTitle)
+       do
+        textSurfaceBlack <- Font.blended (helvetica72 fonts) (V4 255 255 255 255) "Rest for now"
+        SDL.surfaceBlit textSurfaceBlack Nothing windowSurface (Just $ P $ V2 50 700)
+        SDL.freeSurface textSurfaceBlack
 
-            True -> do
-              let countdown = 40 - secondsIntoWorkout
-              countdownTextSurface <- Font.blended (futura72 fonts) (V4 0 0 0 255) (show $ countdown)
-              SDL.surfaceBlit countdownTextSurface Nothing windowSurface (Just $ P $ V2 50 570)
-              SDL.freeSurface countdownTextSurface
+      when ("ready" == sectionTitle || "tick-five" == sectionTitle)
+       do
+        textSurfaceBlack <- Font.blended (helvetica72 fonts) (V4 255 255 255 255) "Get Ready"
+        SDL.surfaceBlit textSurfaceBlack Nothing windowSurface (Just $ P $ V2 50 700)
+        SDL.freeSurface textSurfaceBlack
 
-              restTextSurface <- Font.blended (helvetica24 fonts) (V4 0 0 0 255) "Rest now, next:"
-              SDL.surfaceBlit restTextSurface Nothing windowSurface (Just $ P $ V2 50 670)
-              SDL.freeSurface restTextSurface
+      when ("done" == sectionTitle || "end" == sectionTitle)
+       do
+        doneSurfaceBlack <- Font.blended (helvetica72 fonts) (V4 255 255 255 255) "Done"
+        SDL.surfaceBlit doneSurfaceBlack Nothing windowSurface (Just $ P $ V2 50 700)
+        SDL.freeSurface doneSurfaceBlack
 
-          logosSurfaceBlack <- Font.blended (helvetica24 fonts) (V4 0 0 0 255) logos
-          SDL.surfaceBlit logosSurfaceBlack Nothing windowSurface (Just $ P $ V2 50 700)
-          SDL.freeSurface logosSurfaceBlack
+      let countdown = sectionEnd - (floor secondsInProgress)
+      when (T.isPrefixOf "tick" sectionTitle || ("rest" == sectionTitle && countdown < 11))
+       do
+        countdownTextSurface <- Font.blended (futura72 fonts) (V4 255 255 255 155) (show $ countdown)
+        SDL.surfaceBlit countdownTextSurface Nothing windowSurface (Just $ P $ V2 50 600)
+        SDL.freeSurface countdownTextSurface
 
-  -- SDL.surfaceBlit overallSurface Nothing windowSurface Nothing
+      SDL.updateWindowSurface window
 
-  SDL.updateWindowSurface window
-
-  unless qPressed (sdlCycle workoutFigureSurface windowSurface window fonts ws wavTick wavTock seconds timerStartThisCycle spacePressedThisCycle timerDreamThisCycle)
+      step kdata vdata{timeLastChecked = time, timerStart=timerStartThisCycle, lastFrameSection = currentSection, lastWorkout = workout}
